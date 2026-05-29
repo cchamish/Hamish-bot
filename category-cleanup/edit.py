@@ -17,7 +17,15 @@ site = pywikibot.Site('zh', 'wikipedia')
 site.login()
 
 conn = toolforge.connect('zhwiki_p')
-query = "SELECT page_id, page_title FROM page JOIN categorylinks ON page_id = cl_from WHERE cl_to = '使用创建条目精灵建立的页面' AND page_namespace = 0;"
+query = """
+SELECT page_id, page_title 
+    FROM page 
+    JOIN categorylinks ON page_id = cl_from 
+    JOIN linktarget ON cl_target_id = lt_id 
+    WHERE lt_title = '用条目向导创建的草稿' 
+      AND lt_namespace = 14 
+      AND page_namespace = 0;
+"""
 
 def time_record(t, op):
     user_page = pywikibot.Page(site, "User:Hamish-bot")
@@ -55,10 +63,10 @@ if __name__ == '__main__':
         page = pywikibot.Page(site, page)
         text = page.text
         # Category is added by software so use full prefix, but need check
-        text = re.sub(r'\[\[Category:使用[创創]建[条條]目精[灵靈]建立的[页頁]面\]\]', '', text)
+        text = re.sub(r'\[\[Category:用[条條]目[向嚮][导導][创創]建的草稿\]\]', '', text)
         pywikibot.showDiff(page.text, text)
         page.text = text
-        page.save(summary='[[Wikipedia:机器人/申请/Hamish-bot/9|T9]]：從條目空間頁面中移除[[:Category:使用创建条目精灵建立的页面]]', minor=False)
+        page.save(summary='[[Wikipedia:机器人/申请/Hamish-bot/9|T9]]：從條目空間頁面中移除[[:Category:用条目向导创建的草稿]]', minor=False)
     time_record(str((datetime.datetime.now() + datetime.timedelta(hours=8)).__format__('%d/%m/%y %H:%M')), True)
 
 
