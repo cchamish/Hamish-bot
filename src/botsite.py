@@ -1,6 +1,3 @@
-#Forked from https://github.com/fossifer/WhitePhosphorus-bot/blob/master/src/botsite.py
-
-
 import re
 import time
 import json
@@ -19,12 +16,12 @@ lang = 'zh'
 
 if not debug:
     lang_api = 'https://%s.wikipedia.org/w/api.php' % lang
-    headers = {'User-Agent': "HamishBot/1.0 (https://zh.wikipedia.org/w/"
+    headers = {'User-Agent': "HamishWikiBot/1.0 (https://zh.wikipedia.org/w/"
                "User_talk:Hamish) BasedOnPython/3.11"}
     bot_name = 'Hamish-bot'
 else:
     lang_api = 'https://%s.wikipedia.beta.wmflabs.org/w/api.php' % lang
-    headers = {'User-Agent': 'HB-test via Python 3.11'}
+    headers = {'User-Agent': 'Hamish-test via Python 3.11'}
     bot_name = 'Hamish-bot'
 
 comment_re = re.compile(r'<!--[\s\S]*?-->')
