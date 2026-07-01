@@ -28,7 +28,7 @@ comment_re = re.compile(r'<!--[\s\S]*?-->')
 nowiki_re = re.compile(r'<nowiki>[\s\S]*?</nowiki>|<pre>[\s\S]*?</pre>|'
                        r'<src[\s\S]*?</src>')
 
-maxlag = 5.0
+maxlag = 5
 
 
 def get_summary(task, body):
