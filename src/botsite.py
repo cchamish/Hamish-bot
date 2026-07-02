@@ -571,7 +571,7 @@ class Site:
             else:
                 self.set_status('')
         else:
-            log('Error: Page not saved, see the following result.')
+            log(f"Error: Page not saved for title: {title} / pageid: {pageid}")
             log(json.dumps(rst, indent=4, sort_keys=True))
             if 'edit' in rst and 'captcha' in rst['edit']:
                 word = input('Input the captcha listed above: ')
