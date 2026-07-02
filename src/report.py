@@ -41,7 +41,7 @@ def translate_date(ts):
 def ts_delta(ts, ots, tostr=True, approx=True):
     # "expiry": "infinite" for protection
     # "duration": "indefinite" for block
-    if ts in ['infinite', 'indefinite']:
+    if ts in ['infinite', 'indefinite', 'infinity']:
         return 'indef'
     dt = datetime.datetime.strptime(ts, '%Y-%m-%dT%H:%M:%SZ')
     odt = datetime.datetime.strptime(ots, '%Y-%m-%dT%H:%M:%SZ')
@@ -140,7 +140,7 @@ def handleVIP(change):
         return None
 
     if not expiry:
-        if duration in ['infinite', 'indefinite']:
+        if duration in ['infinite', 'indefinite', 'infinity']:
             expiry = duration
         else:
             log('Warning: bad block log entry -- cannot parse expiry: ' + str(change))
