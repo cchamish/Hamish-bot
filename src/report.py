@@ -27,7 +27,7 @@ unprotect_re = re.compile(r'==\s*[请請]求解除保[护護]\s*==')
 ts_re = re.compile(r'\d{4}年\d{1,2}月\d{1,2}日 \([日一二三四五六]\)'
                    ' \d{2}:\d{2} \(UTC\)')
 
-pt_dict = {'sysop': 'f', 'autoconfirmed': 's', 'move': 'm', 'create': 't', 'extendedconfirmed': 'e'}
+pt_dict = {'sysop': 'f', 'autoconfirmed': 's', 'move': 'm', 'create': 't', 'extendedconfirmed': 'e', 'templateeditor': 'tp'}
 
 
 def translate_date(ts):
