@@ -27,7 +27,7 @@ unprotect_re = re.compile(r'==\s*[请請]求解除保[护護]\s*==')
 ts_re = re.compile(r'\d{4}年\d{1,2}月\d{1,2}日 \([日一二三四五六]\)'
                    ' \d{2}:\d{2} \(UTC\)')
 
-pt_dict = {'sysop': 'f', 'autoconfirmed': 's', 'move': 'm', 'create': 't'}
+pt_dict = {'sysop': 'f', 'autoconfirmed': 's', 'move': 'm', 'create': 't', 'extendedconfirmed': 'e'}
 
 
 def translate_date(ts):
@@ -186,8 +186,14 @@ def handleVIP(change):
     for i, line in enumerate(lines):
         target = (vandal_re.findall(line) or [''])[0]
         if found:
-            if target:  # It's another title.
+            if target:
+                insert_pos = i
+                while insert_pos > 0 and lines[insert_pos - 1].strip() == '':
+                    insert_pos -= 1
+                lines.insert(insert_pos, '* 处理：%s\n\n' % result)
+                replaced = True
                 break
+            
             match = result_re.search(line)
             if match:
                 lines[i] = '* 处理：%s\n' % result
@@ -195,12 +201,15 @@ def handleVIP(change):
                 break
         elif target:
             if ip:
-                # Case insensitive for IPv6
                 if target.upper() == user or (ip_range and ip_in_range(target, ip_range)):
                     found = True
             else:
                 if target == user:
                     found = True
+
+    if found and not replaced:
+        lines.append('\n* 处理：%s\n' % result)
+        replaced = True
 
     if replaced:
         if DEBUG:
