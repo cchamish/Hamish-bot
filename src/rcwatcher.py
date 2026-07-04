@@ -44,23 +44,18 @@ class watcher:
         self.last_id = 0
 
     def watch(self):
-        if DEBUG:
-            # log('fetching rc from %s...' % self.last_ts)
-            n = 0
+        n = 0
         for change in rc_generator(self.last_ts):
             rcid = change.get('rcid', 0)
             if rcid <= self.last_id:
                 continue
-            if DEBUG:
-                n += 1
+            n += 1
             self.last_ts, self.last_id = change.get('timestamp', ''), rcid
             if change['type'] == 'log' and change.get('logtype') in ['protect', 'block']:
-                if DEBUG:
-                    log('pushing {type}: {fr} -> {to} on {ts}'.format(type=change['logtype'], fr=change['user'],
+                log('pushing {type}: {fr} -> {to} on {ts}'.format(type=change['logtype'], fr=change['user'],
                                                                       to=change['title'], ts=change['timestamp']))
                 report_que.put(change)
-        if DEBUG and n:
-            log('%d rc items handled' % n)
+        log('%d rc items handled' % n)
 
 
 def main(pwd):

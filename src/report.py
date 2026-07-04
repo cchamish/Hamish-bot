@@ -180,8 +180,7 @@ def handleVIP(change):
         result += '<small>（对[[special:contribs/{0}|{0}]]的广域封禁）</small>'.format(user)
     result += '。 --~~~~'
 
-    if DEBUG:
-        log('Attempting to post a new VIP result: ' + result)
+    log('Attempting to post a new VIP result: ' + result)
 
     for i, line in enumerate(lines):
         target = (vandal_re.findall(line) or [''])[0]
@@ -212,10 +211,8 @@ def handleVIP(change):
         replaced = True
 
     if replaced:
-        if DEBUG:
-            log('A new VIP result will be posted:', result, '\n', sp=' ')
-        else:
-            EditQueue().push(text=''.join(lines),
+        log('A new VIP result will be posted:', result, '\n', sp=' ')
+        EditQueue().push(text=''.join(lines),
                              summary=get_summary('report', '更新[[特殊:contribs/{0}|{0}]]的处理结果'.format(user)),
                              title=VIP, bot=True, basetimestamp=basets)
 
@@ -229,12 +226,10 @@ def handleUAA(user, result):
     basets = site.get_ts()
     newtext, found = insert_result(text, uaa_re, user, result)
     if found:
-        if DEBUG:
-            log('A new UAA result will be posted', result, sp=' ')
-        else:
-            EditQueue().push(text=newtext,
-                             summary=get_summary('report', '更新[[特殊:contribs/{0}|{0}]]的处理结果'.format(user)),
-                             title=UAA, bot=True, basetimestamp=basets)
+        log('A new UAA result will be posted', result, sp=' ')
+        EditQueue().push(text=newtext,
+                         summary=get_summary('report', '更新[[特殊:contribs/{0}|{0}]]的处理结果'.format(user)),
+                         title=UAA, bot=True, basetimestamp=basets)
 
 
 def handleRFP(change):
@@ -284,16 +279,13 @@ def handleRFP(change):
         return None
     result += '。 --~~~~'
 
-    if DEBUG:
-        log('Attempting to post a new RFP result: %s' % result)
+    log('Attempting to post a new RFP result: %s' % result)
 
     newtext, found = insert_result(text, protect_re, page, '%s\n' % result, stop_re=unprotect_re)
     if found:
-        if DEBUG:
-            log('A new RFP result will be posted', result, sp=' ')
-        else:
-            EditQueue().push(text=newtext, summary=get_summary('report', '更新[[:%s]]的处理结果' % page),
-                             title=RFP, bot=True, basetimestamp=basets)
+        log('A new RFP result will be posted', result, sp=' ')
+        EditQueue().push(text=newtext, summary=get_summary('report', '更新[[:%s]]的处理结果' % page),
+                            title=RFP, bot=True, basetimestamp=basets)
 
 
 @check('report')
@@ -305,13 +297,11 @@ def work(report_que):
     delta = ts_delta(ct, change.get('timestamp', ct), tostr=False)
     if delta < DELAY:
         ret = DELAY - delta + SHORT_SLEEP
-        if DEBUG:
-            log('delta < DELAY, waiting for %d seconds...' % ret)
+        log('delta < DELAY, waiting for %d seconds...' % ret)
         return ret
 
     change = report_que.get()
-    if DEBUG:
-        log('handling {type}: {fr} -> {to} on {ts}'.format(type=change['logtype'], fr=change['user'],
+    log('handling {type}: {fr} -> {to} on {ts}'.format(type=change['logtype'], fr=change['user'],
                                                            to=change['title'], ts=change['timestamp']))
     if change['logtype'] == 'block':
         handleVIP(change)
@@ -324,12 +314,10 @@ def main(report_que):
     while True:
         sleep_time = work(report_que) or SHORT_SLEEP
         try:
-            if DEBUG:
-                log('Nothing to do, sleep %d seconds...' % sleep_time)
+            log('Nothing to do, sleep %d seconds...' % sleep_time)
             time.sleep(sleep_time)
         except KeyboardInterrupt:
-            if DEBUG:
-                log('program terminated when running report.py because of KeyboardInterrupt')
+            log('program terminated when running report.py because of KeyboardInterrupt')
             exit(0)
 
 
