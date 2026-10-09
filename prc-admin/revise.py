@@ -119,6 +119,7 @@ def main():
     group.add_argument('--town', action='store_true', help='Process town-level templates')
     
     parser.add_argument('--start-code', type=str, default=None, help='Start processing from this PRC admin code (inclusive)')
+    parser.add_argument('--start-index', type=int, default=1, help='Start processing from this index (default: 1)')
     
     args = parser.parse_args()
     
