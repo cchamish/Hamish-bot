@@ -23,7 +23,7 @@ def get_db_connection():
     logging.info("Toolforge database connection successful")
     return connection
 
-def process_village_templates(start_code=None, start_index=1):
+def process_village_templates(start_code=None):
     connection = get_db_connection()
     try:
         cursor = connection.cursor()
@@ -43,13 +43,10 @@ def process_village_templates(start_code=None, start_index=1):
         
         deprecated_template = "<noinclude>{{Deprecated template|historical=yes|note=如需修改上級區劃，請參閱[[Wikipedia:机器人建立条目小组/中华人民共和国行政区划/wikidata|維護手冊]]修改維基數據相關實體，或前往[[WikiProject_talk:中国行政区划|專案頁面]]求助。|date=18 Jul 2025}}</noinclude>"
         
-        offset = max(start_index - 1, 0)
-        items_to_process = results[offset:] if not start_code else results
-        total_count = len(items_to_process)
-        
+        total_count = len(results)
         logging.info(f"{total_count} villages to process")
         
-        for i, (full_code,) in enumerate(items_to_process, start=start_index if not start_code else 1):
+        for i, (full_code,) in enumerate(results, start=1):
             page_title = f"Template:PRC admin/data/{full_code[:2]}/{full_code[2:4]}/{full_code[4:6]}/{full_code[6:9]}/{full_code[9:]}"
             page = pywikibot.Page(site, page_title)
             
@@ -71,7 +68,7 @@ def process_village_templates(start_code=None, start_index=1):
     finally:
         connection.close()
 
-def process_town_templates(start_code=None, start_index=1):
+def process_town_templates(start_code=None):
     connection = get_db_connection()
     try:
         cursor = connection.cursor()
@@ -91,13 +88,10 @@ def process_town_templates(start_code=None, start_index=1):
         
         replacement_content = "{{PRC admin/showlist/town}}"
         
-        offset = max(start_index - 1, 0)
-        items_to_process = results[offset:] if not start_code else results
-        total_count = len(items_to_process)
-        
+        total_count = len(results)
         logging.info(f"Found {total_count} towns to process")
         
-        for i, (full_code,) in enumerate(items_to_process, start=start_index if not start_code else 1):
+        for i, (full_code,) in enumerate(results, start=1):
             page_title = f"Template:PRC admin/list/{full_code[:2]}/{full_code[2:4]}/{full_code[4:6]}/{full_code[6:9]}/000"
             page = pywikibot.Page(site, page_title)
             
@@ -119,17 +113,16 @@ def main():
     group.add_argument('--town', action='store_true', help='Process town-level templates')
     
     parser.add_argument('--start-code', type=str, default=None, help='Start processing from this PRC admin code (inclusive)')
-    parser.add_argument('--start-index', type=int, default=1, help='Start processing from this index (default: 1)')
     
     args = parser.parse_args()
     
     if args.village:
         logging.info("Starting village template processing")
-        process_village_templates(start_code=args.start_code, start_index=args.start_index)
+        process_village_templates(start_code=args.start_code)
         logging.info("Village template processing completed")
     elif args.town:
         logging.info("Starting town template processing")
-        process_town_templates(start_code=args.start_code, start_index=args.start_index)
+        process_town_templates(start_code=args.start_code)
         logging.info("Town template processing completed")
 
 if __name__ == "__main__":
