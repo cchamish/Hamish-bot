@@ -4,7 +4,7 @@
 # Name: edit
 # Author: CHAU SHING SHING HAMISH
 import datetime
-
+import sys
 import pywikibot
 import re
 import os
