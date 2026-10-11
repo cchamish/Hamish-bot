@@ -57,13 +57,13 @@ def get_summary(task, body):
 
 def log(*args, time=True, sp='\n'):
     if time:
-        print('[%s] ' % datetime.datetime.utcnow(), end='')
+        print('[%s] ' % datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None), end='')
     for item in args:
         print(item, end=sp)
 
 
 def cur_timestamp():
-    utcnow = str(datetime.datetime.utcnow())
+    utcnow = str(datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None))
     return utcnow.replace(' ', 'T')[:19] + 'Z'
 
 
@@ -403,7 +403,7 @@ class Timestamp:
 
 
 def now():
-    return Timestamp(ts_obj=datetime.datetime.utcnow())
+    return Timestamp(ts_obj=datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None))
 
 
 def check_core(task_name):
