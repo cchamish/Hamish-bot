@@ -13,7 +13,7 @@ user*
 config.py
 apicache
 */apicache
-zhwiki-db-report/reports
+zhwiki-db-report/reports/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
