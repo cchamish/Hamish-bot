@@ -62,7 +62,7 @@ with open(file_path, 'r') as infile:
         file_list += f'# [[:File:{line}]]'
         if bad_pattern.search(file_page.text):
             file_list += '（受限制文件）'
-            print('R')
+            print('R', end='')
         file_list += '\n'
         print()
 
