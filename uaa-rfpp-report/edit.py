@@ -3,6 +3,7 @@
 # Author: CHAU SHING SHING HAMISH
 # Adopted from: https://github.com/fossifer/WhitePhosphorus-bot/tree/master/src
 # exception.py botsite.py core.py rcwatcher.py report.py main.py
+# SET ~/.pywikibot/user-password.py to store bot password
 
 import re
 import os
