@@ -74,5 +74,5 @@ else:
     pywikibot.showDiff(report_page.text, new_text)
     report_page.text = new_text
     report_page.save('[[Wikipedia:机器人/申请/Hamish-bot/8|T8]]：生成本地存在檔案描述的維基共享資源文件列表')
-    rec_time = (datetime.datetime.now() + datetime.timedelta(hours=8)).__format__('%d/%m/%y %H:%M')
+    rec_time = (datetime.datetime.now()).__format__('%d/%m/%y %H:%M')
     time_record(4, rec_time, True)
