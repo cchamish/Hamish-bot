@@ -5,21 +5,23 @@
 # exception.py botsite.py core.py rcwatcher.py report.py main.py
 
 import re
+import os
 import sys
 import time
 import json
 import queue
+import requests
 import datetime
 import ipaddress
 import threading
 from heapq import heappush, heappop
-
-import requests
+from collections import namedtuple
 from dateutil.relativedelta import relativedelta
 
 SITE_DEBUG = False
-
 DEBUG = False
+
+BotPassword = namedtuple('BotPassword', 'login_name password')
 
 class Error(Exception):
     def __init__(self, arg):
@@ -86,6 +88,24 @@ def check_csrf(f):
         return f(*args, **kwargs)
     return wrapper
 
+def load_bot_password(username, family='wikipedia',
+                      path='~/.pywikibot/user-password.py'):
+    with open(os.path.expanduser(path), encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if not line.startswith('('):
+                continue
+            try:
+                entry = eval(line, {'__builtins__': {}, 'BotPassword': BotPassword})
+            except Exception:
+                continue
+            scope, user, pwd = entry[:-2], entry[-2], entry[-1]
+            if user != username or scope not in [(), (family,), (lang, family)]:
+                continue
+            if isinstance(pwd, BotPassword):
+                return '%s@%s' % (user, pwd.login_name), pwd.password
+            return user, pwd
+    raise Error('No password entry for %s in %s' % (username, path))
 
 @singleton
 class Site:
@@ -232,25 +252,19 @@ class Site:
             return self.check_user(interval * 2)
         return 'error' not in r
 
-    def client_login(self, pwd=None):
-        data = {'logintoken': self.query_tokens('login')['logintoken']}
-        self.set_tokens('login', data['logintoken'])
-        data['username'] = bot_name
-        data['password'] = pwd if pwd is not None else self.pwd
-        data['action'] = 'clientlogin'
-        data['loginreturnurl'] = 'https://zh.wikipedia.org/'
+    def client_login(self):
+        lgname, lgpassword = load_bot_password(bot_name)
+        data = {'action': 'login',
+                'lgname': lgname,
+                'lgpassword': lgpassword,
+                'lgtoken': self.query_tokens('login')['logintoken']}
 
-        result = self.api_post(data)['clientlogin']
+        result = self.api_post(data).get('login', {})
 
-        if 'error' in result:
-            raise Error(result['error'])
-        if 'warnings' in result:
-            log('Warning: %s' % result['warnings'])
-        if result.get('status') == 'PASS':
+        if result.get('result') == 'Success':
             self.set_tokens('csrf', self.query_tokens('csrf').get('csrftoken'))
             return None
-        else:
-            raise Error(result.get('message', 'Login Failed'))
+        raise Error(result.get('reason', 'Login Failed'))
 
     def get_text_by_title(self, title, detect_flow=False, ts=False):
         req = {'action': 'query', 'titles': title,
@@ -846,9 +860,9 @@ def edit_loop():
         time.sleep(QUEUE_INTERVAL)
 
 
-def main(pwd=None):
+def main():
     site = Site()
-    site.client_login(pwd=pwd)
+    site.client_login()
 
     threads = [
         threading.Thread(target=rc_loop, args=(watcher(),), daemon=True, name='rcwatcher'),
@@ -869,4 +883,4 @@ def main(pwd=None):
 
 if __name__ == '__main__':
     # python report.py <password>, or python report.py and input password in prompt
-    main(sys.argv[1] if len(sys.argv) > 1 else __import__('getpass').getpass())
+    main()
