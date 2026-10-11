@@ -24,7 +24,7 @@ def time_record(oprt, t):
 
 os.environ['TZ'] = 'UTC'
 print('Starting at: ' + time.asctime(time.localtime(time.time())))
-rec_time = (datetime.datetime.now() + datetime.timedelta(hours=8)).__format__('%d/%m/%y %H:%M')
+rec_time = datetime.datetime.now().__format__('%d/%m/%y %H:%M')
 
 site = pywikibot.Site('zh', 'wikipedia')
 site.login()
