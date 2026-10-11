@@ -45,7 +45,7 @@ def fetch_pages():
         results = cursor.fetchall()
         # Display results
         for row in results:
-            print(f"Page ID: {row[0]}, Title: {row[1].decode('utf-8')}")
+            print(f"Fetched ID: {row[0]}, Title: {row[1].decode('utf-8')}")
         conn.close()
         return results
     except Exception as e:
@@ -59,7 +59,7 @@ if __name__ == '__main__':
         exit(0)
     for page in pages_to_remove:
         page = page.decode('utf-8')
-        print(page)
+        print(f'Removing page: {page}')
         page = pywikibot.Page(site, page)
         text = page.text
         # Category is added by software so use full prefix, but need check
