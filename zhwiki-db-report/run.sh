@@ -9,7 +9,7 @@
 
 SCRIPT_DIR=$(dirname "$0")
 REPORT_DIR=${SCRIPT_DIR}/reports
-
+echo "Starting at: $(date -u '+%a %b %e %H:%M:%S %Y')"
 ##
 # Runs a MySQL query against the labs replica database and puts the result in ~/public_html/r.
 #
