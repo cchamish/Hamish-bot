@@ -10,9 +10,12 @@ import re
 import os
 import time
 import toolforge
+sys.path.append(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+from botutils.record import time_record
 
 os.environ['TZ'] = 'UTC'
 print('Starting at: ' + time.asctime(time.localtime(time.time())))
+rec_time = datetime.datetime.now().__format__('%d/%m/%y %H:%M')
 site = pywikibot.Site('zh', 'wikipedia')
 site.login()
 
@@ -27,15 +30,6 @@ SELECT page_id, page_title
       AND page_namespace = 0;
 """
 
-def time_record(t, op):
-    user_page = pywikibot.Page(site, "User:Hamish-bot")
-    user_page_text = user_page.text
-    user_page_text = re.sub(r'<!-- T9rs -->(.*)<!-- T9re -->', '<!-- T9rs -->' + t + '<!-- T9re -->', user_page_text, flags=re.M)
-    if op:
-        user_page_text = re.sub(r'<!-- T9os -->(.*)<!-- T9oe -->', '<!-- T9os -->' + t + '<!-- T9oe -->', user_page_text, flags=re.M)
-    pywikibot.showDiff(user_page.text, user_page_text)
-    user_page.text = user_page_text
-    user_page.save(summary = "Updating task report", minor = False)
 
 def fetch_pages():
     try:
@@ -55,7 +49,7 @@ if __name__ == '__main__':
     pages_to_remove = [page[1] for page in fetch_pages()]
     if not pages_to_remove:
         print('No pages to remove')
-        time_record(str((datetime.datetime.now() + datetime.timedelta(hours=8)).__format__('%d/%m/%y %H:%M')), False)
+        time_record(5, rec_time, False)
         exit(0)
     for page in pages_to_remove:
         page = page.decode('utf-8')
@@ -67,6 +61,6 @@ if __name__ == '__main__':
         pywikibot.showDiff(page.text, text)
         page.text = text
         page.save(summary='[[Wikipedia:机器人/申请/Hamish-bot/9|T9]]：從條目空間頁面中移除[[:Category:用条目向导创建的草稿]]', minor=False)
-    time_record(str((datetime.datetime.now() + datetime.timedelta(hours=8)).__format__('%d/%m/%y %H:%M')), True)
+    time_record(5, rec_time, True)
 
 
