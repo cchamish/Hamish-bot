@@ -10,7 +10,7 @@ import re
 site = pywikibot.Site('zh', 'wikipedia')
 site.login()
 
-def time_record(task_nbr, t, op):
+def time_record(task_nbr, t, op=True, only_op=False):
     user_page = pywikibot.Page(site, "User:Hamish-bot")
     user_page_text = user_page.text
 
@@ -24,9 +24,14 @@ def time_record(task_nbr, t, op):
     run_time = task_row.group(2)
     op_time = task_row.group(3)
 
-    new_row = old_row.replace(run_time, t, 1)
-    if op:
+    new_row = old_row
+
+    if only_op:
         new_row = new_row.replace(op_time, t, 1)
+    else:
+        new_row = new_row.replace(run_time, t, 1)
+        if op:
+            new_row = new_row.replace(op_time, t, 1)
 
     user_page_text = user_page_text.replace(old_row, new_row, 1)
 

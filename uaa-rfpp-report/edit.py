@@ -18,6 +18,8 @@ import threading
 from heapq import heappush, heappop
 from collections import namedtuple
 from dateutil.relativedelta import relativedelta
+sys.path.append(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+from botutils.record import time_record
 
 SITE_DEBUG = False
 DEBUG = False
@@ -329,6 +331,14 @@ class Site:
                 self.set_status('nochange')
             else:
                 self.set_status('')
+                task = kwargs.get('task')
+                if task and kwargs.get('title') != f'User:{bot_name}':
+                    if time_record:
+                        try:
+                            now_str = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M')
+                            time_record(13, now_str, only_op=True)
+                        except Exception as e:
+                            log(f"time_record error: {e}")
         else:
             log(f"Error: Page not saved for title: {title} / pageid: {pageid}")
             log(json.dumps(rst, indent=4, sort_keys=True))
