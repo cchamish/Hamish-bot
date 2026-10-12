@@ -26,6 +26,9 @@ DEBUG = False
 
 BotPassword = namedtuple('BotPassword', 'login_name password')
 
+RELEVANT_ACTIONS = {'block': ('block', 'reblock'),
+                    'protect': ('protect', 'modify')}
+
 class Error(Exception):
     def __init__(self, arg):
         self.message = arg
@@ -60,9 +63,9 @@ def get_summary(task, body):
 
 def log(*args, time=True, sp='\n'):
     if time:
-        print('[%s] ' % datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None), end='')
+        print('[%s] ' % datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None), end='', flush=True)
     for item in args:
-        print(item, end=sp)
+        print(item, end=sp, flush=True)
 
 
 def cur_timestamp():
@@ -299,6 +302,11 @@ class Site:
 
     @check_csrf
     def ex_edit(self, **kwargs):
+        op_type = kwargs.pop('op_type', None)
+        operator = kwargs.pop('operator', None)
+        target = kwargs.pop('target', None)
+        op_ts = kwargs.pop('op_timestamp', None)
+
         title, pageid = kwargs.get('title'), kwargs.get('pageid')
         content = kwargs.get('text')
         if (title is None) == (pageid is None):
@@ -331,8 +339,14 @@ class Site:
                 self.set_status('nochange')
             else:
                 self.set_status('')
-                task = kwargs.get('task')
-                if task and kwargs.get('title') != f'User:{bot_name}':
+                
+                reported_at = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+                if operator and op_type:
+                    log(f"[{title or pageid}] Reported {target} by {operator} at {op_ts} (posted at {reported_at})")
+                else:
+                    log(f"Successfully edited: {title or pageid} | summary: {kwargs.get('summary', '')}")
+
+                if kwargs.get('title') != f'User:{bot_name}':
                     if time_record:
                         try:
                             now_str = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M')
@@ -416,12 +430,26 @@ class Timestamp:
 def now():
     return Timestamp(ts_obj=datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None))
 
-
+_disabled_logged = {}
 def check_core(task_name):
     if task_name is None:
         return True
     jsontitle = 'User:%s/T%s.json' % (bot_name, task_name)
-    return not Site().get_text_by_title(jsontitle)
+    text = (Site().get_text_by_title(jsontitle) or '').strip()
+    if not text:
+        enabled = True
+    else:
+        try:
+            conf = json.loads(text)
+            enabled = isinstance(conf, dict) and bool(conf.get('enabled', False))
+        except ValueError:
+            enabled = False
+    if enabled:
+        _disabled_logged.pop(task_name, None)
+    elif not _disabled_logged.get(task_name):
+        _disabled_logged[task_name] = True
+        log('[check] task %s is disabled by %s' % (task_name, jsontitle))
+    return enabled
 
 
 def check(task_name):
@@ -429,6 +457,9 @@ def check(task_name):
         def _check(*args, **kwargs):
             if check_core(task_name):
                 return func(*args, **kwargs)
+            else:
+                log(f"[check] Execution of '{func.__name__}' skipped due to disabled task '{task_name}'.")
+                return None
         return _check
     return _wrapper
 
@@ -525,28 +556,43 @@ def rc_generator(rcstart):
             yield change
 
 
+from collections import deque
+
 class watcher:
-    def __init__(self, seconds=86400):
+    def __init__(self, seconds=14400):
         self.last_ts = now() - datetime.timedelta(seconds=seconds)
-        self.last_id = 0
+        self.seen_rcids = set()
+        self.seen_queue = deque(maxlen=5000)
 
     def watch(self):
-        if DEBUG:
-            n = 0
+        new_items_count = 0
+        captured_actions = []
+
         for change in rc_generator(self.last_ts):
             rcid = change.get('rcid', 0)
-            if rcid <= self.last_id:
+            
+            if rcid in self.seen_rcids:
                 continue
-            if DEBUG:
-                n += 1
-            self.last_ts, self.last_id = change.get('timestamp', ''), rcid
-            if change['type'] == 'log' and change.get('logtype') in ['protect', 'block']:
-                if DEBUG:
-                    log('pushing {type}: {fr} -> {to} on {ts}'.format(type=change['logtype'], fr=change['user'],
-                                                                      to=change['title'], ts=change['timestamp']))
+
+            self.seen_rcids.add(rcid)
+            self.seen_queue.append(rcid)
+            if len(self.seen_rcids) > 5000:
+                self.seen_rcids = set(self.seen_queue)
+
+            self.last_ts = change.get('timestamp', self.last_ts)
+            new_items_count += 1
+
+            if (change.get('type') == 'log'
+                    and change.get('logaction') in RELEVANT_ACTIONS.get(change.get('logtype'), ())):
+                action_desc = f"{change['logtype']} on {change.get('title')} by {change.get('user')}"
+                captured_actions.append(action_desc)
+                log(f"[Watcher] Captured event: {action_desc} at {change.get('timestamp')}")
                 report_que.put(change)
-        if DEBUG:
-            log('%d rc items handled' % n)
+
+        if captured_actions:
+            log(f"[Watcher] Polled {new_items_count} RC entries, queued {len(captured_actions)} action(s).")
+        elif DEBUG:
+            log(f"[Watcher] Polled {new_items_count} RC entries, 0 relevant actions.")
 
 DELAY = 180
 LONG_SLEEP = 120
@@ -557,7 +603,7 @@ RFP = 'Wikipedia:请求保护页面'
 
 # TODO: Do not use '?:', use group name instead
 vandal_re = re.compile(r'(?<!=)==\s*(.*?)\s*==(?!=)')
-result_re = re.compile(r'^\*\s*[处處]理：\s*(.*?)\s*$')
+result_re = re.compile(r'^[*:;#]+\s*[处處]理\s*[:：]\s*(.*?)\s*$')
 protect_re = re.compile(r'===\s*\[\[:?(.*?)(?:\|.*?)?\]\]\s*===')
 unprotect_re = re.compile(r'==\s*[请請]求解除保[护護]\s*==')
 ts_re = re.compile(r'\d{4}年\d{1,2}月\d{1,2}日 \([日一二三四五六]\)'
@@ -658,59 +704,64 @@ def handleVIP(change):
     text = site.get_text_by_title(VIP, ts=True)
     basets = site.get_ts()
     user = change.get('title', '')
-    params = change.get('logparams', {})
+    params = change.get('logparams', {}) or change.get('params', {})
     duration = params.get('duration')
     timestamp = change.get('timestamp')
     expiry = params.get('expiry')
     sysop = change.get('user')
+    logaction = change.get('logaction')
 
-    # Some admins use 0s blocks to unblock (e.g. logid 7738901)
-    if change.get('logaction') == 'unblock' or expiry == timestamp:
+    if expiry == timestamp:
         return None
 
     if not expiry:
         if duration in ['infinite', 'indefinite', 'infinity']:
             expiry = duration
         else:
-            log('Warning: bad block log entry -- cannot parse expiry: ' + str(change))
+            log(f"[handleVIP] Skipped: Cannot parse expiry for user '{user}' (params: {params})")
             return None
+
     if not any([sysop, user, timestamp]):
-        log('Warning: bad block log entry -- cannot parse src, dest or timestamp: ' + str(change))
+        log(f"[handleVIP] Skipped: Incomplete log entry for user '{user}'")
         return None
 
-    # check if admins have changed their minds
-    # If the expiry has been changed, the block will be handled later
     block_log = site.api_get({'action': 'query', 'list': 'logevents', 'letype': 'block',
                               'letitle': user, 'lelimit': 1}, 'query').get('logevents')
     if not block_log or type(block_log) != list:
+        log(f"[handleVIP] Skipped: No block log verification found for '{user}'")
         return None
-    block_log = block_log[0]
-    new_params = block_log.get('params', {})
-    # if expiry is None, use duration (for indefinite blocks)
-    if (new_params.get('expiry') or new_params.get('duration')) != expiry:
+        
+    new_params = block_log[0].get('params', {}) or block_log[0].get('logparams', {})
+    latest_expiry = new_params.get('expiry') or new_params.get('duration')
+    if latest_expiry != expiry:
+        log(f"[handleVIP] Skipped: Block parameter changed/mismatched for '{user}' (current: {expiry}, latest: {latest_expiry})")
         return None
 
-    user, ip_range = user[5:], None
+    raw_user = user
+    if user.startswith('User:'):
+        user = user[5:]
+    elif user.startswith('用户:'):
+        user = user[3:]
+    elif ':' in user:
+        user = user.split(':', 1)[1]
+
+    ip_range = None
     ip = isip(user)
     if '/' in user:
-        # ip range
         try:
             ip_range = ipaddress.ip_network(user)
         except ValueError:
-            # This should not happen, but who knows...
-            log('handleVIP: %s does not appear to be'
-                'an IPv4 or IPv6 network' % user)
+            log(f"[handleVIP] Skipped: Invalid IP range format '{user}'")
             return None
+
+    result = '{{Blocked|%s|ad=%s}}' % (ts_delta(expiry, timestamp), sysop)
+    if ip_range:
+        result += '<small>（[[special:contribs/{0}|{0}]]的段封）</small>'.format(user)
+    result += '。 --~~~~'
 
     lines = text.splitlines(True)
     found, replaced = False, False
-    result = '{{Blocked|%s|ad=%s}}' % (ts_delta(expiry, timestamp), sysop)
-    if ip_range:
-        result += '<small>（对[[special:contribs/{0}|{0}]]的广域封禁）</small>'.format(user)
-    result += '。 --~~~~'
-
-    if DEBUG:
-        log('Attempting to post a new VIP result: ' + result)
+    skip_reason = None
 
     for i, line in enumerate(lines):
         target = (vandal_re.findall(line) or [''])[0]
@@ -719,7 +770,7 @@ def handleVIP(change):
                 insert_pos = i
                 while insert_pos > 0 and lines[insert_pos - 1].strip() == '':
                     insert_pos -= 1
-                lines.insert(insert_pos, '* 处理：%s\n' % result)
+                lines.insert(insert_pos, '* 處理：%s\n' % result)
                 replaced = True
                 break
 
@@ -727,33 +778,45 @@ def handleVIP(change):
             if m:
                 content = comment_re.sub('', m.group(1)).strip()
                 if content:
+                    skip_reason = f"Already processed by others ('{content}')"
                     break
                 else:
-                    lines[i] = '* 处理：%s\n' % result
+                    lines[i] = '* 處理：%s\n' % result
                     replaced = True
                     break
 
         elif target:
             if ip:
-                if target.upper() == user or (ip_range and ip_in_range(target, ip_range)):
+                if target.upper() == user.upper() or (ip_range and ip_in_range(target, ip_range)):
                     found = True
             else:
                 if target == user:
                     found = True
 
-    if found and not replaced:
+    if found and not replaced and not skip_reason:
         m = result_re.match(lines[-1]) if lines else None
         if not (m and comment_re.sub('', m.group(1)).strip()):
-            lines.append('* 处理：%s\n' % result)
+            lines.append('* 處理：%s\n' % result)
             replaced = True
 
     if replaced:
-        if DEBUG:
-            log('A new VIP result will be posted:', result, '\n', sp=' ')
-        else:
-            EditQueue().push(text=''.join(lines),
-                            summary=get_summary('13', '更新[[特殊:contribs/{0}|{0}]]的处理结果'.format(user)),
-                            title=VIP, bot=True, basetimestamp=basets)
+        log(f"[handleVIP] Matched reported target '{user}', pushing edit to queue.")
+        EditQueue().push(
+            text=''.join(lines),
+            summary=get_summary('13', '回報[[Special:Contribs/{0}|{0}]]的處理結果'.format(user)),
+            title=VIP,
+            bot=True,
+            basetimestamp=basets,
+            op_type='block',
+            operator=sysop,
+            target=user,
+            op_timestamp=timestamp
+        )
+    else:
+        if not found:
+            log(f"[handleVIP] User '{user}' is not reported on {VIP}.")
+        elif skip_reason:
+            log(f"[handleVIP] Skipped updating '{user}': {skip_reason}")
 
 
 def handleRFP(change):
@@ -764,58 +827,53 @@ def handleRFP(change):
     sysop = change.get('user')
     details = change.get('logparams', {}).get('details', [])
     ots = change.get('timestamp')
-    result = ''
 
-    # check if admins have changed their minds
     protect_log = site.api_get({'action': 'query', 'list': 'logevents', 'letype': 'protect',
                                 'letitle': page, 'lelimit': 1}, 'query').get('logevents')
     if not protect_log or type(protect_log) != list:
-        return None
-    protect_log = protect_log[0]
-    # Here we use logid instead of expiry, because a protection may includes multiple expiring timestamps.
-    if protect_log.get('logid') != change.get('logid'):
+        log(f"[handleRFP] Skipped: No protect log verification found for '{page}'")
         return None
 
-    if change.get('logaction') == 'unprotect':
-        # don't process unprotecting
+    if protect_log[0].get('logid') != change.get('logid'):
+        log(f"[handleRFP] Skipped: Protect action modified by newer operation for '{page}'")
         return None
-    elif change.get('logaction') == 'move_prot':
-        # move protection, e.g. logid 7649780 and 7649788
+
+    if not any([page, sysop, details, ots]):
+        log(f"[handleRFP] Skipped: Incomplete log entry for '{page}'")
         return None
-    else:
-        if not any([page, sysop, details, ots]):
-            return None
 
     if details and type(details) == list:
-        # Only consider the first item (when there are edit & move protection we ignore the latter)
         pt = details[0]
         delta = ts_delta(pt['expiry'], ots)
-        # Ignore 0s protections
         if not delta:
             return None
         result = '* {{{{RFPP|{level}|{time}|by={by}}}}}'.format(
             level=pt_dict[pt['level']] if pt['type'] == 'edit' else pt_dict[pt['type']],
             time=delta, by=sysop)
     else:
-        log('handleRFP error: "details" is empty or not a list. The log id is %d' % change.get('logid', -1))
-
-    if not result:
+        log(f"[handleRFP] Skipped: Invalid 'details' in logparams for '{page}' (logid: {change.get('logid', -1)})")
         return None
-    result += '。 --~~~~'
 
-    if DEBUG:
-        log('Attempting to post a new RFP result: %s' % result)
+    result += '。 --~~~~'
 
     newtext, found = insert_result(text, protect_re, page, '%s\n' % result, stop_re=unprotect_re)
     if found:
-        if DEBUG:
-            log('A new RFP result will be posted', result, sp=' ')
-        else:
-            EditQueue().push(text=newtext, summary=get_summary('13', '更新[[:%s]]的处理结果' % page),
-                            title=RFP, bot=True, basetimestamp=basets)
+        log(f"[handleRFP] Matched requested page '{page}', pushing edit to queue.")
+        EditQueue().push(
+            text=newtext,
+            summary=get_summary('13', '回報[[:%s]]的處理結果' % page),
+            title=RFP,
+            bot=True,
+            basetimestamp=basets,
+            operator=sysop,
+            target=page,
+            op_timestamp=ots
+        )
+    else:
+        log(f"[handleRFP] Page '{page}' is not requested on {RFP}.")
 
 
-@check('report')
+@check('13')
 def work(report_que):
     if not report_que.queue:
         return LONG_SLEEP
@@ -824,8 +882,7 @@ def work(report_que):
     delta = ts_delta(ct, change.get('timestamp', ct), tostr=False)
     if delta < DELAY:
         ret = DELAY - delta + SHORT_SLEEP
-        if DEBUG:
-            log('delta < DELAY, waiting for %d seconds...' % ret)
+        log(f"[Work] Waiting {int(ret)}s buffer delay for: {change.get('title')} ({change.get('timestamp')})")
         return ret
 
     change = report_que.get()
