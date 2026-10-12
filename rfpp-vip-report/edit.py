@@ -350,7 +350,7 @@ class Site:
                     if time_record:
                         try:
                             now_str = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M')
-                            time_record(13, now_str, only_op=True)
+                            time_record(7, now_str, only_op=True)
                         except Exception as e:
                             log(f"time_record error: {e}")
         else:
