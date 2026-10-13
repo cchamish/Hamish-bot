@@ -8,7 +8,7 @@ from botutils.record import time_record
 os.environ['PYWIKIBOT_DIR'] = os.path.dirname(os.path.realpath(__file__))
 os.environ['TZ'] = 'UTC'
 print('Starting at: ' + time.asctime(time.localtime(time.time())))
-rec_time = datetime.datetime.now().__format__('%d/%m/%y %H:%M')
+rec_time = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M')
 
 site = pywikibot.Site()
 site.login()
