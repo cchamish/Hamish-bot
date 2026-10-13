@@ -1,4 +1,8 @@
 import re
+import pywikibot
+
+site = pywikibot.Site('zh', 'wikipedia')
+site.login()
 
 def time_record(task_nbr, t, op=True, only_op=False):
     user_page = pywikibot.Page(site, "User:Hamish-bot")
