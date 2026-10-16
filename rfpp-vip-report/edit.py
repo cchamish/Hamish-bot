@@ -872,6 +872,293 @@ def handleRFP(change):
     else:
         log(f"[handleRFP] Page '{page}' is not requested on {RFP}.")
 
+META_API = 'https://meta.wikimedia.org/w/api.php'
+GLOBAL_RC_INTERVAL = 60
+
+GLOBAL_LOG_ACTIONS = {
+    'gblblock': ('gblock', 'gblock2', 'modify'),
+    'globalauth': ('lock', 'lockandhid', 'setstatus'),
+}
+INFINITE_EXPIRY = ('infinite', 'indefinite', 'infinity')
+
+_meta_session = requests.Session()
+
+def meta_api_get(req, retries=5):
+    req = dict(req)
+    req['format'] = 'json'
+    req['maxlag'] = maxlag
+    interval = 1
+    for _ in range(retries):
+        try:
+            result = _meta_session.get(META_API, params=req, headers=headers,
+                                       timeout=30).json()
+        except (requests.exceptions.RequestException, ValueError) as e:
+            log('meta_api_get: %r, try again after %d sec...' % (e, interval))
+            time.sleep(interval)
+            interval *= 2
+            continue
+        if 'error' in result:
+            if result['error'].get('code') == 'maxlag':
+                log('meta_api_get: maxlag, try again after %d sec...' % maxlag)
+                time.sleep(maxlag)
+                continue
+            log('meta_api_get error!', req)
+            raise Error(result['error'])
+        if 'warnings' in result:
+            log('meta_api_get: Warning: %s' % result['warnings'], req)
+        return result
+    raise Error('meta_api_get: too many retries')
+ 
+ 
+def _iso_ts(ts):
+    ts = str(ts or '')
+    if ts in INFINITE_EXPIRY:
+        return 'infinity'
+    if re.fullmatch(r'\d{14}', ts):
+        return '%s-%s-%sT%s:%s:%sZ' % (ts[:4], ts[4:6], ts[6:8],
+                                       ts[8:10], ts[10:12], ts[12:])
+    return ts
+ 
+ 
+def _global_target(title):
+    name = title.split(':', 1)[1] if ':' in title else title
+    if name.endswith('@global'):
+        name = name[:-len('@global')]
+    return name.strip()
+ 
+ 
+def _same_target(a, b):
+    try:
+        return (ipaddress.ip_network(a, strict=False)
+                == ipaddress.ip_network(b, strict=False))
+    except ValueError:
+        return a.replace('_', ' ').upper() == b.replace('_', ' ').upper()
+ 
+ 
+def _get_global_block(target):
+    r = meta_api_get({'action': 'query', 'list': 'globalblocks',
+                      'bgtargets': target,
+                      'bgprop': 'target|by|timestamp|expiry'})
+    for b in r.get('query', {}).get('globalblocks', []):
+        if _same_target(b.get('target', ''), target):
+            return b
+    return None
+ 
+ 
+def _is_globally_locked(user):
+    r = meta_api_get({'action': 'query', 'meta': 'globaluserinfo',
+                      'guiuser': user})
+    info = r.get('query', {}).get('globaluserinfo', {})
+    return 'locked' in info
+ 
+ 
+def _gauth_added(params):
+    if not isinstance(params, dict):
+        return None
+    for k in ('added', '4::added', '0'):
+        if k in params:
+            v = params[k]
+            if isinstance(v, (list, tuple)):
+                v = ','.join(str(x) for x in v)
+            return str(v)
+    return None
+ 
+ 
+def report_to_vip(user, result, sysop, timestamp, op_type):
+    site = Site()
+    text = site.get_text_by_title(VIP, ts=True)
+    basets = site.get_ts()
+ 
+    ip = isip(user)
+    ip_range = None
+    if '/' in user:
+        try:
+            ip_range = ipaddress.ip_network(user, strict=False)
+        except ValueError:
+            log(f"[handleGlobal] Skipped: Invalid IP range format '{user}'")
+            return None
+ 
+    lines = text.splitlines(True)
+    found, replaced = False, False
+    skip_reason = None
+ 
+    for i, line in enumerate(lines):
+        target = (vandal_re.findall(line) or [''])[0]
+        if found:
+            if target:
+                insert_pos = i
+                while insert_pos > 0 and lines[insert_pos - 1].strip() == '':
+                    insert_pos -= 1
+                lines.insert(insert_pos, '* 處理：%s\n' % result)
+                replaced = True
+                break
+ 
+            m = result_re.match(line)
+            if m:
+                content = comment_re.sub('', m.group(1)).strip()
+                if content:
+                    skip_reason = f"Already processed by others ('{content}')"
+                    break
+                else:
+                    lines[i] = '* 處理：%s\n' % result
+                    replaced = True
+                    break
+ 
+        elif target:
+            if ip:
+                if target.upper() == user.upper() or (ip_range and ip_in_range(target, ip_range)):
+                    found = True
+            else:
+                if target.replace('_', ' ') == user:
+                    found = True
+ 
+    if found and not replaced and not skip_reason:
+        m = result_re.match(lines[-1]) if lines else None
+        if not (m and comment_re.sub('', m.group(1)).strip()):
+            lines.append('* 處理：%s\n' % result)
+            replaced = True
+ 
+    if replaced:
+        log(f"[handleGlobal] Matched reported target '{user}', pushing edit to queue.")
+        EditQueue().push(
+            text=''.join(lines),
+            summary=get_summary('13', '回報[[Special:Contribs/{0}|{0}]]的處理結果'.format(user)),
+            title=VIP,
+            bot=True,
+            basetimestamp=basets,
+            op_type=op_type,
+            operator=sysop,
+            target=user,
+            op_timestamp=timestamp
+        )
+    elif not found:
+        log(f"[handleGlobal] User '{user}' is not reported on {VIP}.")
+    elif skip_reason:
+        log(f"[handleGlobal] Skipped updating '{user}': {skip_reason}")
+ 
+ 
+def handleGlobal(change):
+    logtype = change.get('logtype')
+    sysop = change.get('user')
+    timestamp = change.get('timestamp')
+    user = _global_target(change.get('title', ''))
+ 
+    if not all([sysop, timestamp, user]):
+        log(f"[handleGlobal] Skipped: Incomplete log entry for '{user}'")
+        return None
+ 
+    if logtype == 'gblblock':
+        block = _get_global_block(user)
+        if not block:
+            log(f"[handleGlobal] Skipped: '{user}' is not globally blocked now")
+            return None
+        expiry = _iso_ts(block.get('expiry'))
+        if not expiry:
+            log(f"[handleGlobal] Skipped: Cannot parse expiry for '{user}'")
+            return None
+        log_expiry = (change.get('params') or {}).get('expiry')
+        if log_expiry and _iso_ts(log_expiry) != expiry:
+            log(f"[handleGlobal] Skipped: Global block parameter changed/mismatched for '{user}' (log: {_iso_ts(log_expiry)}, current: {expiry})")
+            return None
+        if expiry == 'infinity':
+            delta = 'indef'
+        else:
+            if ts_delta(expiry, timestamp, tostr=False) <= 0:
+                log(f"[handleGlobal] Skipped: Global block of '{user}' already expired")
+                return None
+            delta = ts_delta(expiry, timestamp)
+        if not delta:
+            return None
+ 
+        result = '{{GlobalBlocked|%s|%s}}' % (sysop, delta)
+        if '/' in user:
+            result += '<small>（[[special:contribs/{0}|{0}]]的段封）</small>'.format(user)
+        op_type = 'gblock'
+ 
+    elif logtype == 'globalauth':
+        if change.get('logaction') == 'setstatus':
+            added = _gauth_added(change.get('params'))
+            if DEBUG:
+                log(f"[handleGlobal] globalauth params for '{user}': {change.get('params')!r}")
+            if added is not None and 'locked' not in added.lower():
+                log(f"[handleGlobal] Skipped: globalauth change for '{user}' does not add lock ('{added}')")
+                return None
+        if not _is_globally_locked(user):
+            log(f"[handleGlobal] Skipped: '{user}' is not globally locked now")
+            return None
+ 
+        result = '{{GlobalLocked|%s}}' % sysop
+        op_type = 'glock'
+ 
+    else:
+        return None
+ 
+    result += '。 --~~~~'
+    report_to_vip(user, result, sysop, timestamp, op_type)
+ 
+ 
+class global_watcher:
+ 
+    def __init__(self, seconds=14400):
+        start = str(now() - datetime.timedelta(seconds=seconds))
+        self.last_ts = {t: start for t in GLOBAL_LOG_ACTIONS}
+        self.seen_logids = set()
+        self.seen_queue = deque(maxlen=5000)
+ 
+    def watch(self):
+        new_items_count = 0
+        queued = 0
+ 
+        for letype, actions in GLOBAL_LOG_ACTIONS.items():
+            req = {'action': 'query', 'list': 'logevents', 'letype': letype,
+                   'lestart': self.last_ts[letype], 'ledir': 'newer',
+                   'lelimit': 'max',
+                   'leprop': 'ids|title|type|user|timestamp|comment|details'}
+            cont = {'continue': ''}
+            while True:
+                r = meta_api_get({**req, **cont})
+                for ev in r.get('query', {}).get('logevents', []):
+                    logid = ev.get('logid')
+                    if logid in self.seen_logids:
+                        continue
+                    self.seen_logids.add(logid)
+                    self.seen_queue.append(logid)
+                    if len(self.seen_logids) > 5000:
+                        self.seen_logids = set(self.seen_queue)
+ 
+                    self.last_ts[letype] = ev.get('timestamp', self.last_ts[letype])
+                    new_items_count += 1
+ 
+                    # hidden les
+                    if (ev.get('action') in actions and ev.get('title')
+                            and ev.get('user') and ev.get('timestamp')):
+                        log(f"[GlobalWatcher] Captured event: {letype}/{ev['action']} "
+                            f"on {ev['title']} by {ev['user']} at {ev['timestamp']}")
+                        report_que.put({'logtype': letype,
+                                        'logaction': ev['action'],
+                                        'logid': logid,
+                                        'title': ev['title'],
+                                        'user': ev['user'],
+                                        'timestamp': ev['timestamp'],
+                                        'params': ev.get('params', {})})
+                        queued += 1
+                if 'continue' not in r:
+                    break
+                cont = r['continue']
+ 
+        if queued:
+            log(f"[GlobalWatcher] Polled {new_items_count} meta log entries, queued {queued} action(s).")
+        elif DEBUG:
+            log(f"[GlobalWatcher] Polled {new_items_count} meta log entries, 0 relevant actions.")
+ 
+ 
+def global_rc_loop(w):
+    while True:
+        try:
+            w.watch()
+        except Exception as e:
+            log('global_rc_loop error: %r' % e)
+        time.sleep(GLOBAL_RC_INTERVAL)
 
 @check('13')
 def work(report_que):
@@ -891,6 +1178,8 @@ def work(report_que):
                                                        to=change['title'], ts=change['timestamp']))
     if change['logtype'] == 'block':
         handleVIP(change)
+    elif change['logtype'] in ('globalauth', 'gblblock'):
+        handleGlobal(change)
     else:
         handleRFP(change)
     return SHORT_SLEEP
@@ -936,6 +1225,7 @@ def main():
         threading.Thread(target=rc_loop, args=(watcher(),), daemon=True, name='rcwatcher'),
         threading.Thread(target=report_loop, daemon=True, name='report'),
         threading.Thread(target=edit_loop, daemon=True, name='editqueue'),
+        threading.Thread(target=global_rc_loop, args=(global_watcher(),), daemon=True, name='globalrcwatcher'),
     ]
     for t in threads:
         t.start()
