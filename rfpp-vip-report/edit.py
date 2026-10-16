@@ -606,6 +606,7 @@ vandal_re = re.compile(r'(?<!=)==\s*(.*?)\s*==(?!=)')
 result_re = re.compile(r'^[*:;#]+\s*[处處]理\s*[:：]\s*(.*?)\s*$')
 protect_re = re.compile(r'===\s*\[\[:?(.*?)(?:\|.*?)?\]\]\s*===')
 unprotect_re = re.compile(r'==\s*[请請]求解除保[护護]\s*==')
+rfpp_re = re.compile(r'\{\{\s*[Rr][Ff][Pp][Pp]\b')
 ts_re = re.compile(r'\d{4}年\d{1,2}月\d{1,2}日 \([日一二三四五六]\)'
                    r' \d{2}:\d{2} \(UTC\)')
 
@@ -856,11 +857,58 @@ def handleRFP(change):
 
     result += '。 --~~~~'
 
-    newtext, found = insert_result(text, protect_re, page, '%s\n' % result, stop_re=unprotect_re)
-    if found:
+    lines = text.splitlines(True)
+    found, replaced = False, False
+    skip_reason = None
+    target_page = page.lstrip(':').replace('_', ' ').strip()
+
+    for i, line in enumerate(lines):
+        if unprotect_re.search(line):
+            if found and not replaced and not skip_reason:
+                insert_pos = i
+                while insert_pos > 0 and lines[insert_pos - 1].strip() == '':
+                    insert_pos -= 1
+                lines.insert(insert_pos, '%s\n' % result)
+                replaced = True
+            break
+
+        target = (protect_re.findall(line) or [''])[0]
+        if found:
+            if target:
+                insert_pos = i
+                while insert_pos > 0 and lines[insert_pos - 1].strip() == '':
+                    insert_pos -= 1
+                lines.insert(insert_pos, '%s\n' % result)
+                replaced = True
+                break
+
+            content = comment_re.sub('', line).strip()
+            if rfpp_re.search(content):
+                skip_reason = f"Already processed by others ('{content}')"
+                break
+
+            m = result_re.match(line)
+            if m:
+                content = comment_re.sub('', m.group(1)).strip()
+                if content:
+                    skip_reason = f"Already processed by others ('{content}')"
+                    break
+
+        elif target:
+            if target.lstrip(':').replace('_', ' ').strip() == target_page:
+                found = True
+
+    if found and not replaced and not skip_reason:
+        insert_pos = len(lines)
+        while insert_pos > 0 and lines[insert_pos - 1].strip() == '':
+            insert_pos -= 1
+        lines.insert(insert_pos, '%s\n' % result)
+        replaced = True
+
+    if replaced:
         log(f"[handleRFP] Matched requested page '{page}', pushing edit to queue.")
         EditQueue().push(
-            text=newtext,
+            text=''.join(lines),
             summary=get_summary('13', '回報[[:%s]]的處理結果' % page),
             title=RFP,
             bot=True,
@@ -870,7 +918,10 @@ def handleRFP(change):
             op_timestamp=ots
         )
     else:
-        log(f"[handleRFP] Page '{page}' is not requested on {RFP}.")
+        if not found:
+            log(f"[handleRFP] Page '{page}' is not requested on {RFP}.")
+        elif skip_reason:
+            log(f"[handleRFP] Skipped updating '{page}': {skip_reason}")
 
 META_API = 'https://meta.wikimedia.org/w/api.php'
 GLOBAL_RC_INTERVAL = 60
