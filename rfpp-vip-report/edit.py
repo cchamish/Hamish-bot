@@ -1269,6 +1269,7 @@ def edit_loop():
 
 
 def main():
+    log("[Main] Starting bot...")
     site = Site()
     site.client_login()
 
